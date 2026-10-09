@@ -45,6 +45,7 @@ import awsGetDefaultRegion from '../aws/aws-get-default-region.ts';
 import { SQS_QUEUES_NAME_PREFIX } from '../aws/constants.ts';
 import { parseResourceTags, toTagMap } from '../aws/resource-tags.ts';
 import createS3Client from '../aws-ecs/legacy/create-s3-client.ts';
+import { nodeOrdinalEnv } from '../node-ordinal.ts';
 import { createAndUploadTestDependencies } from './dependencies.ts';
 import prices from './prices.ts';
 
@@ -431,7 +432,7 @@ class PlatformLambda {
     for (let i = 0; i < this.platformOpts.count; i++) {
       const { workerId } = await this.createWorker();
       this.workers[workerId] = { id: workerId };
-      await this.runWorker(workerId);
+      await this.runWorker(workerId, i);
     }
   }
 
@@ -441,7 +442,7 @@ class PlatformLambda {
     return { workerId };
   }
 
-  async runWorker(workerId: string) {
+  async runWorker(workerId: string, nodeIndex = 0) {
     const lambda = new LambdaClient({
       apiVersion: '2015-03-31',
       region: this.region
@@ -455,6 +456,14 @@ class PlatformLambda {
       BUCKET: this.bucketName,
       WAIT_FOR_GREEN: true,
       ARTILLERY_CLOUD_API_KEY: this.cloudKey
+    };
+
+    // Give this Lambda its worker ordinal. The worker handler spreads ENV into
+    // the child `artillery run` process; the nested local workers inside this
+    // Lambda share the ordinal.
+    event.ENV = {
+      ...(event.ENV || {}),
+      ...nodeOrdinalEnv(nodeIndex, this.platformOpts.count)
     };
 
     if (process.env.ARTILLERY_CLOUD_ENDPOINT) {
